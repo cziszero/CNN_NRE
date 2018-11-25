@@ -2,3 +2,5 @@ NYT/origin_data/vec.txt filter=lfs diff=lfs merge=lfs -text
 NYT/origin_data/train.txt filter=lfs diff=lfs merge=lfs -text
 SemEval/data/* filter=lfs diff=lfs merge=lfs -text
 NYT/origin_data/* filter=lfs diff=lfs merge=lfs -text
+SemEval/data/word_embeddings_dict.pk filter=lfs diff=lfs merge=lfs -text
+SemEval/data/word_embeddings_dict.txt filter=lfs diff=lfs merge=lfs -text

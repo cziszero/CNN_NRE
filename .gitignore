@@ -3,3 +3,4 @@
 *.pyc
 *.bin
 __pycache__/*
+.idea/*
