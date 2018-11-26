@@ -9,7 +9,9 @@ class Dataset(object):
     """
 
     def __init__(self, data_path, batch_size=40, isRandom=False):
-        self.MAX_SEN_LEN = 86 # 最大句子长度
+        np.random.seed(0)
+
+        self.MAX_SEN_LEN = 86  # 最大句子长度
         self.batch_size = batch_size
         self.size = 0
         self.idx = 0
@@ -163,7 +165,7 @@ class Dataset(object):
         生成一个batch迭代的数据
         :return:
         """
-        if self.idx >= self.size:
+        if self.idx + self.batch_size >= self.size:
             self.idx = 0
             self._shuffle()
             raise StopIteration
