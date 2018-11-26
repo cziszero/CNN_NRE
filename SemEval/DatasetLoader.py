@@ -1,4 +1,6 @@
 import numpy as np
+import pickle as pk
+import os
 
 
 class Dataset(object):
@@ -6,16 +8,27 @@ class Dataset(object):
     对原始数据进行处理, 并支持生成一批训练数据等操作
     """
 
-    def __init__(self, data_path='data/train_file.txt'):
+    def __init__(self, data_path, batch_size=40, isRandom=False):
+        self.MAX_SEN_LEN = 86 # 最大句子长度
+        self.batch_size = batch_size
         self.size = 0
-        self.rs = []
+        self.idx = 0
+        self.rels = []
         self.sens = []
+        self.sens_vec = []
         self.pos = []
         self.r2n = dict()
         self.n2r = dict()
 
         self.read_rel_class()
         self.read_raw_data(data_path=data_path)
+        if isRandom:
+            self.word_embeddings = pk.load(open('data/word_embeddings_random_dict.pk', 'rb'))
+        else:
+            self.word_embeddings = pk.load(open('data/word_embeddings_dict.pk', 'rb'))
+        self.lPF, self.rPF = np.random.rand(86 * 2, 5), np.random.rand(86 * 2, 5)
+        self.mk_sens_vec()
+        self._shuffle()
 
     def read_rel_class(self, filename='data/rel_to_class.txt'):
         """
@@ -50,7 +63,7 @@ class Dataset(object):
         r2n = self.r2n
         ss = []
         sen_maxlen = 0
-        rs, pos, sens = self.rs, self.pos, self.sens
+        rs, pos, sens = [], [], self.sens
 
         with open(data_path, 'r', encoding='utf-8') as f:
             while True:
@@ -86,9 +99,10 @@ class Dataset(object):
                         word += "_" + tt[j]
                     word = word.replace('</e2>', '')
                 else:
-                    word = tt[j][:-1] if tt[j][-1] in split_char else tt[j]
-                    word = word[1:] if len(word) > 0 and word[0] in split_char else word
+                    word = tt[j]
 
+                while len(word) > 0 and word[-1] in split_char: word = word[:-1]
+                while len(word) > 0 and word[0] in split_char: word = word[1:]
                 if word != '':
                     s_words.append(word)
                     ind += 1
@@ -99,6 +113,8 @@ class Dataset(object):
             pos.append((e1, e2))
 
         self.size = len(sens)
+        self.pos = np.asarray(pos)
+        self.rels = np.asarray(rs)
 
         exampleID = np.random.randint(0, len(ss))
         print("example %d\n %s \n %s" % (exampleID, ss[exampleID], self.n2r[rs[exampleID]]))
@@ -108,6 +124,55 @@ class Dataset(object):
         print(s_words[p[0]], ' ', s_words[p[1]])
 
         print('Total %d samples, Max Length %d, ' % (self.size, sen_maxlen))
+
+    def mk_sens_vec(self):
+        """
+        将字符串形式的数据站换为词向量形式的数据
+        :return:
+        """
+        F_PAD = np.zeros(50 + 5 * 2, dtype=np.float32)
+        sens_vec = []
+        for i, sen in enumerate(self.sens):
+            _sen_vec = []
+            _sen_vec.append(F_PAD)
+            for j, word in enumerate(sen):
+                wf = self.word_embeddings[word]
+                lpf = self.lPF[self.pos[i][0] - j + self.MAX_SEN_LEN]
+                rpf = self.rPF[self.pos[i][0] - j + self.MAX_SEN_LEN]
+                _sen_vec.append(np.concatenate([wf, lpf, rpf]))
+            while len(_sen_vec) < self.MAX_SEN_LEN:  # 填充至最大句子长度
+                _sen_vec.append(F_PAD)
+            sens_vec.append(_sen_vec)
+        self.sens_vec = np.asarray(sens_vec)
+
+    def __iter__(self):
+        return self
+
+    def _shuffle(self):
+        """
+        将数据进行混洗
+        :return: None
+        """
+        _idx = np.random.permutation(self.size)
+        self.rels = self.rels[_idx]
+        self.sens_vec = self.sens_vec[_idx]
+        self.pos = self.pos[_idx]
+
+    def __next__(self):
+        """
+        生成一个batch迭代的数据
+        :return:
+        """
+        if self.idx >= self.size:
+            self.idx = 0
+            self._shuffle()
+            raise StopIteration
+        _idx = slice(self.idx, self.idx + self.batch_size)
+        x = self.sens_vec[_idx]
+        y = self.rels[_idx]
+        pos = self.pos[_idx]
+        self.idx += self.batch_size
+        return x, y, pos
 
 
 if __name__ == '__main__':
@@ -129,7 +194,6 @@ if __name__ == '__main__':
     building_word_embeddings = False
     if building_word_embeddings:
         import gensim
-        import pickle as pk
 
         words = set()
         word_embeddings = {}
@@ -153,5 +217,10 @@ if __name__ == '__main__':
         with open('data/word_embeddings_dict.txt', 'w', encoding='utf-8') as f:
             for w in words:
                 f.write(w + ' : ' + str(list(word_embeddings[w])) + '\n')
-        print("There are %d words in both train and test dataset"%(len(words)))
-        print("%d words is't in GoogleNews-vectors"%(not_in_dict))
+        print("There are %d words in both train and test dataset" % (len(words)))
+        print("%d words is't in GoogleNews-vectors" % (not_in_dict))
+
+        word_embeddings = {}
+        for w in words:
+            word_embeddings[w] = np.random.rand(50)
+        pk.dump(word_embeddings, open('data/word_embeddings_random_dict.pk', 'wb'))
