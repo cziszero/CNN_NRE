@@ -1,3 +1,5 @@
+# coding=utf-8
+
 from DatasetLoader import Dataset
 from tfConf import getSess
 
@@ -28,12 +30,18 @@ class Model():
         conv = tf.layers.conv1d(self.inputs, filters=Param.CONV_FILTERS, kernel_size=Param.CONV_HIGHT, padding='same')
         if encoder == 'CNN':
             _f = self._cnn_encoder(conv)
+        elif encoder == 'CNN-K':
+            _f = self._cnn_k_encoder(conv)
         elif encoder == 'PCNN':
             _f = self._pcnn_encoder(conv)
+        elif encoder == 'PCNN-K':
+            _f = self._pcnn_k_encoder(conv)
 
         act = tf.nn.relu(_f)
-        drop = tf.layers.dropout(act, rate=drop_prob, training=self.training)
-        logit = tf.layers.dense(drop, Param.REL_NUM, kernel_initializer=tf.contrib.layers.xavier_initializer())
+        fea = tf.layers.dropout(act, rate=drop_prob, training=self.training)
+
+        logit = tf.layers.dense(fea, Param.REL_NUM, kernel_initializer=tf.contrib.layers.xavier_initializer())
+
         self.pred = tf.argmax(logit, axis=1)
 
         label_onehot = tf.one_hot(indices=self.label, depth=Param.REL_NUM, dtype=tf.int32)
@@ -48,6 +56,11 @@ class Model():
         gmax = tf.reduce_max(conv, axis=1)
         return gmax
 
+    def _cnn_k_encoder(self, conv):
+        k = 2
+        p, _ = tf.nn.top_k(tf.transpose(conv, [0, 2, 1]), k)
+        return tf.reshape(p, (-1, conv.get_shape().as_list()[-1] * k))
+
     def _pcnn_encoder(self, conv):
         self.pos = tf.placeholder(shape=(Param.BATCH_SIZE, 2), dtype=tf.int32, name='pos')
         pmax = []
@@ -60,16 +73,36 @@ class Model():
             pmax.append(p)
         return tf.stack(pmax)
 
+    def _pcnn_k_encoder(self, conv):
+        self.pos = tf.placeholder(shape=(Param.BATCH_SIZE, 2), dtype=tf.int32, name='pos')
+        padding = tf.zeros(dtype=tf.float32, shape=(1, conv.get_shape().as_list()[-1]))
+        pmax = []
+        for i in range(Param.BATCH_SIZE):
+            e1, e2 = self.pos[i][0], self.pos[i][1]
+
+            _p = tf.concat([conv[i, 0:e1, :], padding], axis=0)
+            p1, k = tf.nn.top_k(tf.transpose(_p), k=2)
+
+            _p = tf.concat([conv[i, e1:e2, :], padding], axis=0)
+            p2, k = tf.nn.top_k(tf.transpose(_p), k=2)
+
+            _p = tf.concat([conv[i, e2:Param.MAX_SEN_LEN, :], padding], axis=0)
+            p3, k = tf.nn.top_k(tf.transpose(_p), k=2)
+
+            p = tf.reshape(tf.concat([p1, p2, p3], axis=0), [-1])
+            pmax.append(p)
+        return tf.stack(pmax)
+
     def train(self, x_bat, y_bat, pos_bat):
         feed = {self.inputs: x_bat, self.label: y_bat, self.training: True}
-        if self.encoder == 'PCNN':
+        if 'PCNN' in self.encoder:
             feed[self.pos] = pos_bat
         loss, _ = self.sess.run([self.loss, self.train_op], feed_dict=feed)
         return loss
 
     def test(self, x_bat, y_bat, pos_bat):
         feed = {self.inputs: x_bat, self.training: False}
-        if self.encoder == 'PCNN':
+        if 'PCNN' in self.encoder:
             feed[self.pos] = pos_bat
         pred = self.sess.run(self.pred, feed_dict=feed)
         return sum(pred == y_bat)
@@ -83,6 +116,10 @@ def train_test(train_data, test_data, encoder):
     model = Model(sess, encoder=encoder)
 
     # summary_writer = tf.summary.FileWriter('summary', sess.graph)
+    loss, cor = 0.0, 0
+    for x, y, pos in test_data:
+        cor += model.test(x, y, pos)
+    print('random initialization, accuracy rate %f' % (cor / test_data.size))
 
     for epoch in range(1, 61):
         loss, cor = 0.0, 0
@@ -107,20 +144,29 @@ if __name__ == '__main__':
     print('=' * 10, st, '=' * 10)
     train_test(train_data, test_data, encoder='PCNN')
 
+    # st = '使用Word2Vec初始化 PCNN-K结构'
+    st = '使用Word2Vec初始化 PCNN-K结构'
+    print('=' * 10, st, '=' * 10)
+    train_test(train_data, test_data, encoder='PCNN-K')
+
+    st = '使用Word2Vec初始化 CNN-K结构'
+    print('=' * 10, st, '=' * 10)
+    train_test(train_data, test_data, encoder='CNN-K')
+
     # 使用Word2Vec初始化 CNN结构
     st = '使用Word2Vec初始化 CNN结构'
     print('=' * 10, st, '=' * 10)
     train_test(train_data, test_data, encoder='CNN')
 
-    train_data = Dataset(data_path='data/train_file.txt', isRandom=True)
-    test_data = Dataset(data_path='data/test_file.txt', isRandom=True)
+    # train_data = Dataset(data_path='data/train_file.txt', isRandom=True)
+    # test_data = Dataset(data_path='data/test_file.txt', isRandom=True)
 
     # 使用Random初始化 PCNN结构
-    st = '使用Random初始化 PCNN结构'
-    print('=' * 10, st, '=' * 10)
-    train_test(train_data, test_data, encoder='PCNN')
+    # st = '使用Random初始化 PCNN结构'
+    # print('=' * 10, st, '=' * 10)
+    # train_test(train_data, test_data, encoder='PCNN')
 
     # 使用Random初始化 CNN结构
-    st = '使用Random初始化 CNN结构'
-    print('=' * 10, st, '=' * 10)
-    train_test(train_data, test_data, encoder='CNN')
+    # st = '使用Random初始化 CNN结构'
+    # print('=' * 10, st, '=' * 10)
+    # train_test(train_data, test_data, encoder='CNN')

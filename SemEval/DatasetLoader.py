@@ -1,3 +1,5 @@
+# coding=utf-8
+
 import numpy as np
 import pickle as pk
 import os
@@ -114,8 +116,9 @@ class Dataset(object):
             sen_maxlen = max(sen_maxlen, ind)
             pos.append((e1, e2))
 
+        sen_maxlen += 1 #前面要添加一个padding, 以保证每一段都有内容
         self.size = len(sens)
-        self.pos = np.asarray(pos)
+        self.pos = np.asarray(pos) + 1
         self.rels = np.asarray(rs)
 
         exampleID = np.random.randint(0, len(ss))
